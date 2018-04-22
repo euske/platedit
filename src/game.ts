@@ -1,6 +1,7 @@
 /// <reference path="../base/utils.ts" />
 /// <reference path="../base/geom.ts" />
 /// <reference path="../base/entity.ts" />
+/// <reference path="../base/tilemap.ts" />
 /// <reference path="../base/text.ts" />
 /// <reference path="../base/scene.ts" />
 /// <reference path="../base/app.ts" />
@@ -53,6 +54,13 @@ class PoissonTimer {
 //
 class TextMap extends TileMap {
 
+    changed: Signal;
+
+    constructor(tilesize: number, width: number, height: number) {
+        super(tilesize, width, height);
+        this.changed = new Signal(this);
+    }
+
     renderText(ctx: CanvasRenderingContext2D) {
 	for (let y = 0; y < this.height; y++) {
 	    for (let x = 0; x < this.width; x++) {
@@ -65,13 +73,6 @@ class TextMap extends TileMap {
 	}
     }
 
-    putText(x: number, y: number, text: string) {
-        for (let i = 0; i < text.length; i++) {
-            let c = text.charCodeAt(i);
-            this.set(x+i, y, c);
-        }
-    }
-
     getLine(y: number) {
         let len = 0;
         let text = '';
@@ -80,7 +81,7 @@ class TextMap extends TileMap {
             if (32 < c) {
                 len = x+1;
             }
-            text += String.fromCharCode(this.get(x,y));
+            text += String.fromCharCode(c);
         }
         return text.substring(0, len);
     }
@@ -91,12 +92,26 @@ class TextMap extends TileMap {
         });
     }
 
+    putText(x: number, y: number, text: string) {
+        for (let i = 0; i < text.length; i++) {
+            let c = text.charCodeAt(i);
+            this.set(x+i, y, c);
+        }
+        this.changed.fire();
+    }
+
+    place(x: number, y:number, c:number) {
+        this.set(x, y, c);
+        this.changed.fire();
+    }
+
     insertChar(p: Vec2) {
         let y = p.y;
 	for (let x = this.width-1; p.x < x; x--) {
             this.set(x, y, this.get(x-1, y));
         }
         this.set(p.x, y, 0);
+        this.changed.fire();
     }
 
     deleteChar(p: Vec2) {
@@ -105,6 +120,7 @@ class TextMap extends TileMap {
             this.set(x, y, this.get(x+1, y));
         }
         this.set(this.width-1, y, 0);
+        this.changed.fire();
     }
 
     insertLine(y: number) {
@@ -112,12 +128,30 @@ class TextMap extends TileMap {
 	for (let x = 0; x < this.width; x++) {
             this.set(x, y, 0);
         }
+        this.changed.fire();
     }
 
     deleteLine(y: number) {
         this.shift(0, +1, new Rect(0, 0, this.width, y+1));
 	for (let x = 0; x < this.width; x++) {
             this.set(x, 0, 0);
+        }
+        this.changed.fire();
+    }
+}
+
+
+//  LadderMap
+//
+class LadderMap extends TileMap {
+    constructor(tilesize: number, width: number, height: number) {
+        super(tilesize, width, height);
+        for (let y = 0; y < this.height-2; y++) {
+            for (let x = 0; x < this.width; x++) {
+                if ((x % 4 == 2) && (((y+x) % 8) <= 4)) {
+                    this.set(x, y, 1);
+                }
+            }
         }
     }
 }
@@ -198,7 +232,7 @@ class Monster extends PlatformerEntity {
 	super(scene.textmap, scene.physics, pos);
 	this.skin = skin;
 	this.collider = this.skin.getBounds();
-        this.movement = new Vec2(rnd(2)*2-1, 1);
+        this.movement = new Vec2(rnd(2)*2-1, 0);
     }
 
     tick() {
@@ -283,6 +317,7 @@ class Player extends PlatformerEntity {
     laddermap: TileMap;
     usermove: Vec2;
     carrying: Entity = null;
+    holding: boolean = false;
 
     constructor(scene: Game, pos: Vec2) {
 	super(scene.textmap, scene.physics, pos);
@@ -294,6 +329,7 @@ class Player extends PlatformerEntity {
 
     setJump(jumpend: number) {
 	super.setJump(jumpend);
+        this.holding = false;
 	if (0 < jumpend && this.isJumping()) {
 	    APP.playSound('jump');
 	}
@@ -303,14 +339,39 @@ class Player extends PlatformerEntity {
 	this.usermove = v.copy();
     }
 
-    hasLadder() {
+    tick() {
+	super.tick();
+	let v = this.usermove;
+        if (this.onLadder()) {
+            if (v.y != 0) {
+                this.holding = true;
+            }
+        } else if (this.aboveLadder()) {
+            v = new Vec2(v.x, lowerbound(0, v.y)); // can only move downward.
+        } else {
+            this.holding = false;
+	    v = new Vec2(v.x, 0);
+	}
+	this.moveIfPossible(v.scale(2));
+        if (this.carrying instanceof Monster) {
+            this.carrying.pos = this.pos.move(0, -8);
+        }
+    }
+
+    onLadder() {
         let f = this.physics.isGrabbable;
 	let range = this.getCollider().getAABB();
 	return (this.laddermap.findTileByCoord(f, range) !== null);
     }
 
+    aboveLadder() {
+        let f = this.physics.isGrabbable;
+	let range = this.getCollider().getAABB().move(0, 1);
+	return (this.laddermap.findTileByCoord(f, range) !== null);
+    }
+
     canFall() {
-	return !this.hasLadder();
+	return !this.holding;
     }
 
     getFencesFor(range: Rect, v: Vec2, context: string): Rect[] {
@@ -338,18 +399,6 @@ class Player extends PlatformerEntity {
     getCurLine() {
         let pos = this.tilemap.coord2map(this.pos);
         return pos.y;
-    }
-
-    tick() {
-	super.tick();
-	let v = this.usermove.scale(2);
-        if (!this.hasLadder()) {
-	    v = new Vec2(v.x, lowerbound(0, v.y));
-	}
-	this.moveIfPossible(v);
-        if (this.carrying instanceof Monster) {
-            this.carrying.pos = this.pos.move(0, -8);
-        }
     }
 
     collidedWith(entity: Entity) {
@@ -390,7 +439,7 @@ class Player extends PlatformerEntity {
                 pos.y--;
                 this.movePos(new Vec2(0, -this.tilemap.tilesize));
             }
-            this.tilemap.set(pos.x, pos.y, c);
+            (this.tilemap as TextMap).place(pos.x, pos.y, c);
             let particle = new CharParticle(this.tilemap.map2coord(pos).center(), c);
             this.world.add(particle);
         } else if (this.carrying instanceof Chicken) {
@@ -431,28 +480,22 @@ class Game extends GameScene {
 	this.physics.maxspeed = new Vec2(4, 4);
 	this.physics.isObstacle =
             ((c:number) => { return 32 < c; });
-	this.physics.isGrabbable =
-            ((c:number) => { return c == 1; });
 	this.physics.isStoppable =
-            ((c:number) => { return c != 0 && c != 32; });
+            ((c:number) => { return 32 < c; });
+	this.physics.isGrabbable =
+            ((c:number) => { return c == 1; }); // laddermap
 
-	this.textmap = new TextMap(10, 32, 24);
+	this.textmap = new TextMap(10, 16, 12);
         this.textmap.putText(0, this.textmap.height-1, 'HELLO WORLD!');
-
-	this.laddermap = new TileMap(8, 40, 30);
-        for (let y = 0; y < 30; y++) {
-            for (let x = 0; x < 40; x++) {
-                if ((x % 5 == 2) && (((y+x) % 10) <= 5)) {
-                    this.laddermap.set(x, y, 1);
-                }
-            }
-        }
+        this.textmap.changed.subscribe(() => { this.updateText(); });
+	this.laddermap = new LadderMap(8, 20, 15);
 
 	let pos = new Vec2(this.world.area.cx(), 8);
 	this.player = new Player(this, pos);
 	this.add(this.player);
 
 	//APP.setMusic('music', 0, 16.1);
+        this.updateText();
     }
 
     tick() {
@@ -524,5 +567,11 @@ class Game extends GameScene {
         );
         this.textmap.renderText(ctx);
 	super.render(ctx);
+    }
+
+    updateText() {
+        let lines = this.textmap.getText();
+        let text = document.getElementById('text');
+        text.innerText = lines.join('\n');
     }
 }

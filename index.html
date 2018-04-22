@@ -5,21 +5,28 @@
 <meta http-equiv="X-UA-Compatible" content="IE=edge" />
 <title>Platformer + Text Editor</title>
 <style>
+kbd { border: 1px solid white; padding: 4px; }
+#game { position: absolute; width: 640px; height: 480px; }
+#text { position: absolute; left:660px; top:0; width:160px; height:144px;
+border: 1px solid white; padding: 4px;
+text-align: left; line-height: 1.0; font-family: monospace; font-size: 12px; }
 canvas {
- cursor: none;
  image-rendering: -moz-crisp-edges;
  image-rendering: crisp-edges;
  image-rendering: pixelated;
 }
 </style>
 <script language="javascript" src="js/game.js"></script>
-<body bgcolor="black" text="white" link="cyan" onload="main(Game);">
+<body bgcolor="black" text="white" link="cyan" onload="main(Game,160,120);">
 <h1 align=center>Platformer + Text Editor</h1>
 <div style="margin: 1em;" align=center>
   <p> Ludum Dare 41, Apr. 2018, "Combine 2 Incompatible Genres"
-  <div id="game" style="position: relative; width: 640px; height: 480px;"></div>
+  <div style="position: relative; width: 900px; height: 480px;">
+    <div id="game"></div><pre id="text"></pre>
+  </div>
   <p>
-  How to edit:
+    <kbd>Space</kbd>: Jump &nbsp; <kbd>C</kbd>: Place.
+  <p>
   <img src="assets/chicken.png">: Ins. Char &nbsp;
   <img src="assets/snake.png">: Del. Char &nbsp;
   <img src="assets/hero.png">: Ins. Line &nbsp;
