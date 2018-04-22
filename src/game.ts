@@ -16,7 +16,8 @@ let FONT2: Font;
 let FONT3: Font;
 let SPRITES:ImageSpriteSheet;
 let TILES:ImageSpriteSheet;
-let CHARS = "AABCDEEEFGHHIIJKLMNNOOPQRRSSTTUVWXYZ0123456789,.-!?";
+let CHARS = "AABCDEEEFGHHIIJKLMNNOOPQRRSSTTUVWXYZ.-!?";
+let MONTH = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
 addInitHook(() => {
     FONT = new Font(APP.images['font'], 'white');
     FONT2 = new Font(APP.images['font'], '#0cf');
@@ -151,9 +152,9 @@ class TextMap extends TileMap {
 class LadderMap extends TileMap {
     constructor(tilesize: number, width: number, height: number) {
         super(tilesize, width, height);
-        for (let y = 0; y < this.height-2; y++) {
+        for (let y = 0; y < this.height; y++) {
             for (let x = 0; x < this.width; x++) {
-                if ((x % 4 == 2) && (((y+x) % 8) <= 4)) {
+                if ((x % 4 == 2) && (((y+x) % 10) <= 4)) {
                     this.set(x, y, 1);
                 }
             }
@@ -473,10 +474,11 @@ class Player extends PlatformerEntity {
 //
 class Game extends GameScene {
 
+    physics: PhysicsConfig;
+    stars: StarImageSource;
     player: Player;
     textmap: TextMap;
     laddermap: TileMap;
-    physics: PhysicsConfig;
     timer1 = new PoissonTimer(0.7);
     timer2 = new PoissonTimer(0.2);
     timer3 = new PoissonTimer(0.05);
@@ -497,11 +499,31 @@ class Game extends GameScene {
             ((c:number) => { return c == 1; }); // laddermap
 
 	this.textmap = new TextMap(10, 16, 12);
-        //                    01234567890123456
-        this.textmap.addLine('CALL ME ISHMAEL.');
-        this.textmap.addLine('IT WAS A DARK');
-        this.textmap.addLine('AND STORMY NIGHT');
-        this.textmap.addLine('CHEETOS IS GOOD.');
+        //                              0123456789012345
+        switch (rnd(4)) {
+        case 0:
+            this.textmap.putText(2, 4, 'HELLO,');
+            this.textmap.putText(2, 6, 'MY NAME IS');
+            this.textmap.putText(4, 9, '----------');
+            break;
+        case 1:
+            this.textmap.putText(2, 4, 'CALL ME');
+            this.textmap.putText(4, 6, 'IS MA L.');
+            this.textmap.putText(6, 8, 'MMMKAY?');
+            break;
+        case 2:
+            this.textmap.putText(2, 3, 'MAKE');
+            this.textmap.putText(4, 5, '$$$$$$$');
+            this.textmap.putText(6, 7, 'GREAT');
+            this.textmap.putText(8, 9, 'AGAIN');
+            break;
+        case 3:
+            let a = new Date();
+            let s = MONTH[a.getMonth()]+" "+(a.getDate()+1);
+            this.textmap.putText(1, 3, s+':');
+            this.textmap.putText(2, 5, 'DEAR DIARY,');
+            break;
+        }
         this.textmap.changed.subscribe(() => { this.updateText(); });
 	this.laddermap = new LadderMap(8, 20, 15);
 
@@ -509,12 +531,16 @@ class Game extends GameScene {
 	this.player = new Player(this, pos);
 	this.add(this.player);
 
+        let star1 = new RectImageSource('rgba(200,200,200,0.5)', new Rect(-1,-1,2,2))
+	this.stars = new StarImageSource(this.screen, 50, 5, [star1]);
+
 	APP.setMusic('music', 0, 16);
         this.updateText();
     }
 
     tick() {
 	super.tick();
+	this.stars.move(new Vec2(2, -1));
 
         if (this.timer1.tick()) {
             let x = rnd(8, this.world.area.width-16);
@@ -574,9 +600,16 @@ class Game extends GameScene {
         }
     }
 
+    onKeyDown(key: number) {
+	if (key == 82) {
+            this.init();        // reset
+        }
+    }
+
     render(ctx: CanvasRenderingContext2D) {
 	ctx.fillStyle = 'rgb(32,32,96)';
 	fillRect(ctx, this.screen);
+        this.stars.render(ctx);
         this.laddermap.renderFromTopRight(
             ctx, (x,y,c) => { return (c == 1)? TILES.get(0) : null; }
         );
