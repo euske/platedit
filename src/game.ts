@@ -16,7 +16,7 @@ let FONT2: Font;
 let FONT3: Font;
 let SPRITES:ImageSpriteSheet;
 let TILES:ImageSpriteSheet;
-let CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789,.-!?";
+let CHARS = "AABCDEEEFGHHIIJKLMNNOOPQRRSSTTUVWXYZ0123456789,.-!?";
 addInitHook(() => {
     FONT = new Font(APP.images['font'], 'white');
     FONT2 = new Font(APP.images['font'], '#0cf');
@@ -137,6 +137,11 @@ class TextMap extends TileMap {
             this.set(x, 0, 0);
         }
         this.changed.fire();
+    }
+
+    addLine(text: string) {
+        this.insertLine(this.height-1);
+        this.putText(0, this.height-1, text);
     }
 }
 
@@ -388,17 +393,20 @@ class Player extends PlatformerEntity {
     getPlacement(): Vec2 {
         let collider = this.getCollider();
         let pos = this.tilemap.coord2map(this.pos);
-        while (true) {
-            let rect = this.tilemap.map2coord(pos);
-            if (!rect.overlaps(collider)) break;
-            pos.y += 1;
-        }
-        return new Vec2(pos.x, pos.y);
+        return new Vec2(pos.x, pos.y+1);
     }
 
     getCurLine() {
         let pos = this.tilemap.coord2map(this.pos);
-        return pos.y;
+        return pos.y+1;
+    }
+
+    fixPos() {
+        while (this.tilemap.findTileByCoord(
+            this.physics.isObstacle,
+            this.getCollider() as Rect) !== null) {
+            this.movePos(new Vec2(0, -this.tilemap.tilesize));
+        }
     }
 
     collidedWith(entity: Entity) {
@@ -417,6 +425,7 @@ class Player extends PlatformerEntity {
             } else if (entity instanceof Fire) {
                 (this.tilemap as TextMap).deleteLine(y);
             }
+            this.fixPos();
             entity.stop();
             APP.playSound('hurt');
         }
@@ -437,17 +446,19 @@ class Player extends PlatformerEntity {
             if (this.tilemap.height <= pos.y) {
                 (this.tilemap as TextMap).insertLine(this.tilemap.height-1);
                 pos.y--;
-                this.movePos(new Vec2(0, -this.tilemap.tilesize));
             }
             (this.tilemap as TextMap).place(pos.x, pos.y, c);
+            this.fixPos();
             let particle = new CharParticle(this.tilemap.map2coord(pos).center(), c);
             this.world.add(particle);
         } else if (this.carrying instanceof Chicken) {
             let pos = this.getPlacement();
             (this.tilemap as TextMap).insertChar(pos);
+            this.fixPos();
         } else if (this.carrying instanceof Snake) {
             let pos = this.getPlacement();
             (this.tilemap as TextMap).deleteChar(pos);
+            this.fixPos();
         }
         if (this.carrying instanceof Entity) {
             this.carrying.stop();
@@ -475,7 +486,7 @@ class Game extends GameScene {
 
 	this.physics = new PhysicsConfig();
 	this.physics.jumpfunc = ((vy:number, t:number) => {
-	    return (0 <= t && t <= 5)? -3 : vy+1;
+	    return (0 <= t && t <= 6)? -3 : vy+1;
 	});
 	this.physics.maxspeed = new Vec2(4, 4);
 	this.physics.isObstacle =
@@ -486,7 +497,11 @@ class Game extends GameScene {
             ((c:number) => { return c == 1; }); // laddermap
 
 	this.textmap = new TextMap(10, 16, 12);
-        this.textmap.putText(0, this.textmap.height-1, 'HELLO WORLD!');
+        //                    01234567890123456
+        this.textmap.addLine('CALL ME ISHMAEL.');
+        this.textmap.addLine('IT WAS A DARK');
+        this.textmap.addLine('AND STORMY NIGHT');
+        this.textmap.addLine('CHEETOS IS GOOD.');
         this.textmap.changed.subscribe(() => { this.updateText(); });
 	this.laddermap = new LadderMap(8, 20, 15);
 
@@ -494,7 +509,7 @@ class Game extends GameScene {
 	this.player = new Player(this, pos);
 	this.add(this.player);
 
-	//APP.setMusic('music', 0, 16.1);
+	APP.setMusic('music', 0, 16);
         this.updateText();
     }
 
