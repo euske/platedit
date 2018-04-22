@@ -26,6 +26,68 @@ addInitHook(() => {
 });
 
 
+class PoissonTimer {
+
+    prob: number;
+    fired: number = 0;
+
+    constructor(prob: number) {
+        this.prob = prob;
+    }
+
+    tick(): boolean {
+        let t = getTime();
+        if (this.fired == 0) {
+            this.fired = t;
+        } else {
+            let dt = t-this.fired;
+            let p = (1.0-this.prob)**dt;
+            if (p < Math.random()) {
+                this.fired = t;
+                return true;
+            }
+        }
+        return false;
+    }
+}
+
+//  TextMap
+//
+class TextMap extends TileMap {
+
+    putText(x: number, y: number, text: string) {
+        for (let i = 0; i < text.length; i++) {
+            let c = text.charCodeAt(i);
+            this.set(x+i, y, c);
+        }
+    }
+
+    getLine(y: number) {
+        return range(this.width).map((x) => {
+            return String.fromCharCode(this.get(x,y));
+        }).join('');
+    }
+
+    getText() {
+        return range(this.height).map((y) => {
+            return this.getLine(y);
+        });
+    }
+
+    renderText(ctx: CanvasRenderingContext2D) {
+	for (let y = 0; y < this.height; y++) {
+	    for (let x = 0; x < this.width; x++) {
+                let c = this.get(x, y);
+                if (32 < c) {
+                    let text = String.fromCharCode(c);
+                    FONT.renderString(ctx, text, x*10+1, y*10+1);
+                }
+            }
+	}
+    }
+}
+
+
 //  CharSprite
 //
 class CharSprite extends EntitySprite {
@@ -82,46 +144,99 @@ class CharParticle extends Entity {
 
     tick() {
 	super.tick();
-        if (1 <= this.getTime()) {
+        if (1 < this.getTime()) {
             this.stop();
         }
     }
 }
 
 
-//  TextMap
+//  Monster
 //
-class TextMap extends TileMap {
+class Monster extends PlatformerEntity {
 
-    putText(x: number, y: number, text: string) {
-        for (let i = 0; i < text.length; i++) {
-            let c = text.charCodeAt(i);
-            this.set(x+i, y, c);
+    movement: Vec2;
+    carried = false;
+    timer = new PoissonTimer(0.1);
+
+    constructor(scene: Game, pos: Vec2, skin: ImageSource) {
+	super(scene.textmap, scene.physics, pos);
+	this.skin = skin;
+	this.collider = this.skin.getBounds();
+        this.movement = new Vec2(rnd(2)*2-1, 1);
+    }
+
+    tick() {
+	super.tick();
+        if (!this.carried) {
+            if (this.timer.tick()) {
+                this.movement.x = -this.movement.x;
+            }
+            this.sprite.scale.x = sign(this.movement.x);
+	    this.moveIfPossible(this.movement);
+            if (!this.getCollider().overlaps(this.world.area)) {
+                this.stop();
+            }
+            if (5 < this.getTime()) {
+                this.stop();
+            }
         }
     }
 
-    getLine(y: number) {
-        return range(this.width).map((x) => {
-            return String.fromCharCode(this.get(x,y));
-        }).join('');
+    canFall() {
+        return (!this.carried && super.canFall());
     }
 
-    getText() {
-        return range(this.height).map((y) => {
-            return this.getLine(y);
-        });
+    getObstaclesFor(range: Rect, v: Vec2, context: string): Rect[] {
+        let rects = super.getObstaclesFor(range, v, context);
+        rects.push(this.world.area.move(0, this.world.area.height));
+        return rects;
+    }
+}
+
+// Chicken
+class Chicken extends Monster {
+    constructor(scene: Game, pos: Vec2) {
+        super(scene, pos, SPRITES.get(2));
+    }
+}
+
+// Snake
+class Snake extends Monster {
+    constructor(scene: Game, pos: Vec2) {
+        super(scene, pos, SPRITES.get(3));
+    }
+}
+
+
+//  Flying
+//
+class Flying extends Projectile {
+
+    constructor(pos: Vec2, movement: Vec2, skin: ImageSource) {
+	super(pos);
+        this.movement = movement.scale(2);
+	this.skin = skin;
+	this.collider = this.skin.getBounds();
     }
 
-    renderText(ctx: CanvasRenderingContext2D) {
-	for (let y = 0; y < this.height; y++) {
-	    for (let x = 0; x < this.width; x++) {
-                let c = this.get(x, y);
-                if (32 < c) {
-                    let text = String.fromCharCode(c);
-                    FONT.renderString(ctx, text, x*10+1, y*10+1);
-                }
-            }
-	}
+    tick() {
+	super.tick();
+        this.sprite.scale.x = sign(this.movement.x);
+    }
+}
+
+// Hero
+class Hero extends Flying {
+    constructor(pos: Vec2, movement: Vec2) {
+	super(pos, movement, SPRITES.get(4));
+    }
+}
+
+// Fire
+class Fire extends Flying {
+    constructor(pos: Vec2, movement: Vec2) {
+	super(pos, movement, SPRITES.get(5));
     }
 }
 
@@ -132,7 +247,7 @@ class Player extends PlatformerEntity {
 
     laddermap: TileMap;
     usermove: Vec2;
-    carrying: number = 0;
+    carrying: Entity = null;
 
     constructor(scene: Game, pos: Vec2) {
 	super(scene.textmap, scene.physics, pos);
@@ -140,15 +255,6 @@ class Player extends PlatformerEntity {
 	this.skin = SPRITES.get(1);
 	this.collider = this.skin.getBounds().inflate(-1,0);
 	this.usermove = new Vec2();
-    }
-
-    tick() {
-	super.tick();
-	let v = this.usermove.scale(2);
-        if (!this.hasLadder()) {
-	    v = new Vec2(v.x, lowerbound(0, v.y));
-	}
-	this.moveIfPossible(v);
     }
 
     setJump(jumpend: number) {
@@ -176,30 +282,67 @@ class Player extends PlatformerEntity {
 	return [this.world.area];
     }
 
-    collidedWith(entity: Entity) {
-        if (entity instanceof CharEntity) {
-            entity.stop();
-            this.carrying = entity.c;
-	    APP.playSound('pick');
-        }
-    }
-
     renderExtra(ctx: CanvasRenderingContext2D) {
-        if (this.carrying != 0) {
-            let text = String.fromCharCode(this.carrying);
+        if (this.carrying instanceof CharEntity) {
+            let text = String.fromCharCode(this.carrying.c);
             FONT3.renderString(ctx, text, -4, -12);
         }
     }
 
+    tick() {
+	super.tick();
+	let v = this.usermove.scale(2);
+        if (!this.hasLadder()) {
+	    v = new Vec2(v.x, lowerbound(0, v.y));
+	}
+	this.moveIfPossible(v);
+        if (this.carrying instanceof Monster) {
+            this.carrying.pos = this.pos.move(0, -8);
+        }
+    }
+
+    collidedWith(entity: Entity) {
+        if (entity instanceof CharEntity) {
+            entity.stop();
+            this.carry(entity);
+        } else if (entity instanceof Monster) {
+            if (!entity.carried) {
+                entity.carried = true;
+                this.carry(entity);
+            }
+        } else if (entity instanceof Flying) {
+            entity.stop();
+            APP.playSound('hurt');
+        }
+    }
+
+    carry(entity: Entity) {
+        if (this.carrying !== null) {
+            this.carrying.stop();
+        }
+        this.carrying = entity;
+	APP.playSound('pick');
+    }
+
     place() {
-        if (this.carrying != 0) {
-            let rect = this.tilemap.coord2map(this.pos).move(0,1);
-            this.tilemap.set(rect.x, rect.y, this.carrying);
-	    APP.playSound('place');
-            let p = this.tilemap.map2coord(rect);
-            let particle = new CharParticle(p.center(), this.carrying);
+        if (this.carrying instanceof CharEntity) {
+            let c = this.carrying.c;
+            let collider = this.getCollider();
+            let pos = this.tilemap.coord2map(this.pos);
+            let rect: Rect;
+            while (true) {
+                rect = this.tilemap.map2coord(pos);
+                if (!rect.overlaps(collider)) break;
+                pos.y += 1;
+            }
+            this.tilemap.set(pos.x, pos.y, c);
+            let particle = new CharParticle(rect.center(), c);
             this.world.add(particle);
-            this.carrying = 0;
+        }
+        if (this.carrying instanceof Entity) {
+            this.carrying.stop();
+            this.carrying = null;
+	    APP.playSound('place');
         }
     }
 }
@@ -213,6 +356,9 @@ class Game extends GameScene {
     textmap: TextMap;
     laddermap: TileMap;
     physics: PhysicsConfig;
+    timer1 = new PoissonTimer(0.1);
+    timer2 = new PoissonTimer(0.05);
+    timer3 = new PoissonTimer(0.01);
 
     init() {
 	super.init();
@@ -243,23 +389,50 @@ class Game extends GameScene {
             }
         }
 
-	let p = new Vec2(0,0);
-	this.player = new Player(this, this.textmap.map2coord(p).center());
+	let pos = new Vec2(this.world.area.cx(), 8);
+	this.player = new Player(this, pos);
 	this.add(this.player);
 
-	APP.setMusic('music', 0, 16.1);
+	//APP.setMusic('music', 0, 16.1);
     }
 
     tick() {
 	super.tick();
 
-        if (rnd(10) == 0) {
-            let fc = FONT.width;
+        if (this.timer1.tick()) {
             let c = rnd(33, 127);
-            let x = rnd(fc, this.world.area.width-fc*2);
+            let x = rnd(8, this.world.area.width-16);
             let pos = new Vec2(x, 0);
             let entity = new CharEntity(pos, c);
             this.add(entity);
+        }
+
+        if (this.timer2.tick()) {
+            let x = rnd(8, this.world.area.width-16);
+            let pos = new Vec2(x, 0);
+            switch (rnd(2)) {
+            case 0:
+                this.add(new Chicken(this, pos));
+                break;
+            case 1:
+                this.add(new Snake(this, pos));
+                break;
+            }
+        }
+
+        if (this.timer3.tick()) {
+            let vx = rnd(2)*2-1;
+            let x = (0 < vx)? 0 : this.world.area.width;
+            let pos = new Vec2(x, this.player.pos.y);
+            let dir = new Vec2(vx, 0);
+            switch (rnd(2)) {
+            case 0:
+                this.add(new Hero(pos, dir));
+                break;
+            case 1:
+                this.add(new Fire(pos, dir));
+                break;
+            }
         }
     }
 
